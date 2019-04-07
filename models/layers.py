@@ -3,14 +3,15 @@ import torch
 import torch.nn.functional as f
 
 
-# debug
-# do something about mask
+# implement mask
 class SelfAttention(nn.Module):
 
     def __init__(self, dim, attention_heads):
         super().__init__()
-        # define transformation layers
         self.dim = dim
+        self.query_layer = nn.Linear(dim, int(dim/attention_heads))
+        self.key_layer = nn.Linear(dim, int(dim/attention_heads))
+        self.valueLayer = nn.Linear(dim, int(dim/attention_heads))
 
     def forward(self, query_source, key_source, value_source):
 
@@ -67,12 +68,11 @@ class FeedForward(nn.Module):
 
 class ResidualConnection(nn.Module):
 
-    def __init__(self, droput=0.1):
+    def __init__(self, dim, dropout=0.1):
         super().__init__()
-        # define dropout
-        # define layer norm
-        pass
+        self.dropout = nn.Dropout(dropout)
+        # recheck proper implementation of layer norm
+        self.layer_norm = nn.LayerNorm(dim)
 
     def forward(self, source, target):
-        # source + dropout(norm(target))
-        pass
+        return source + self.dropout(self.layer_norm(target))
