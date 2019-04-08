@@ -76,3 +76,21 @@ class ResidualConnection(nn.Module):
 
     def forward(self, source, target):
         return source + self.dropout(self.layer_norm(target))
+
+
+class EmbeddingLayer(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, tensor):
+        pass
+
+
+class PredictionLayer(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, tensor):
+        pass
