@@ -1,8 +1,4 @@
-import torch.nn as nn
-import torch
-from models.layers import SelfAttention
-from models.layers import FeedForward
-from models.layers import ResidualConnection
+from models.layers import *
 
 
 class EncoderLayer(nn.Module):
@@ -68,7 +64,6 @@ class DecoderLayer(nn.Module):
         return self.residual_connection[2](residual_encoder_decoder_self_attn, feed_forward_output)
 
 
-# add embedding layer
 class TransformerEncoder(nn.Module):
     def __init__(self, layers, dim, attention_heads, dim_ff, dropout=0.1):
         super().__init__()
@@ -78,14 +73,9 @@ class TransformerEncoder(nn.Module):
             self.encoder.append(EncoderLayer(dim, attention_heads, dim_ff, dropout))
 
     def forward(self, input_tensor: torch.Tensor):
-        result = None
         for i in range(self.N):
             input_tensor = self.encoder[i](input_tensor)
-            if result is None:
-                result = input_tensor.clone()
-            else:
-                result = torch.cat((result, input_tensor))
-        return result
+        return input_tensor
 
 
 class TransformerDecoder(nn.Module):
@@ -96,38 +86,51 @@ class TransformerDecoder(nn.Module):
         for i in range(layers):
             self.decoder.append(DecoderLayer(dim, attention_heads, dim_ff, dropout))
 
-    def forward(self, encoder_outputs: torch.Tensor, decoder_input: torch.Tensor):
+    def forward(self, encoder_output: torch.Tensor, decoder_input: torch.Tensor):
         for i in range(self.N):
-            decoder_input = self.decoder[i](decoder_input, encoder_outputs[i], mask=None)
+            decoder_input = self.decoder[i](decoder_input, encoder_output, mask=None)
         return decoder_input
 
 
-# add embedding layer
-# add prediction layer
 class Transformer(nn.Module):
-    def __init__(self, layers, dim, attention_heads, dim_ff, dropout=0.1):
+    def __init__(self, layers, dim, vocabulary_size, attention_heads, dim_ff, max_decode_length, dropout=0.1):
         super().__init__()
         self.N = layers
-        # initialize embedding layer
+        self.embedding_layer = EmbeddingLayer(dim, vocabulary_size)
         self.t_encoder = TransformerEncoder(layers, dim, attention_heads, dim_ff, dropout)
         self.t_decoder = TransformerDecoder(layers, dim, attention_heads, dim_ff, dropout)
-        # initialize prediction layer
+        self.prediction_layer = Generator(dim, vocabulary_size)
+        self.max_decode_length = max_decode_length
 
-    def forward(self, encoder_input: torch.Tensor, decoder_input: torch.Tensor, inference=False):
-        # pass encoder input through embedding layer
+    def forward(self, encoder_input: torch.Tensor, decoder_input: torch.Tensor, inference=False, learn=False):
+        loss = 0
+        batch_size, _, _ = encoder_input.size()
+        encoder_input = self.embedding_layer(encoder_input)
         encoder_output = self.t_encoder(encoder_input)
-        prediction = None
-        batch_size, decoder_seq_length, _ = decoder_input.size()
-        for i in range(decoder_seq_length):
+
+        prediction = torch.empty((1, batch_size), dtype=torch.long, device=torch.device('cuda'))  # (1, batch_size)
+        prediction.fill_(2)
+
+        if inference:
+            max_len = self.max_decode_length
+        else:
+            _, max_len, _ = decoder_input.size()
+
+        for i in range(max_len - 1):
             if inference:
-                tensor = 3  # should be picked from result
+                tensor = prediction[:, 0:i+1, :]  # should be picked from result
             else:
-                tensor = 3  # should be picked from input
-            # pass tensor through embedding layer
+                tensor = decoder_input[:, 0:i+1, :]  # should be picked from input
+            tensor = self.embedding_layer(tensor)
             decoder_output = self.t_decoder(encoder_output, tensor)
 
-            # predict the result using prediction layer
-            # compute loss
+            dist, top_indices = self.prediction_layer(decoder_output)
+            if not inference:
+                ce_loss = f.cross_entropy(dist, decoder_input[:, i+1], ignore_index=1, reduction='mean')
+                loss += float(ce_loss)
 
-            # append prediction to result
-        return prediction  # and error
+                if learn:
+                    ce_loss.backward(retain_graph=True)
+
+            prediction = torch.cat((prediction, top_indices))
+        return prediction, loss
