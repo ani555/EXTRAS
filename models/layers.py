@@ -1,58 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as f
-from torch.autograd import Variable
-import math
-
-
-# implement mask
-class SelfAttention(nn.Module):
-
-    def __init__(self, dim, attention_heads):
-        super().__init__()
-        self.dim = dim
-        self.query_layer = nn.Linear(dim, int(dim/attention_heads))
-        self.key_layer = nn.Linear(dim, int(dim/attention_heads))
-        self.valueLayer = nn.Linear(dim, int(dim/attention_heads))
-
-    def forward(self, query_source, key_source, value_source):
-
-        query: torch.Tensor = self.query_layer(query_source)
-        key: torch.Tensor = self.key_layer(key_source)
-        value: torch.Tensor = self.value_layer(value_source)
-
-        _, query_seq_len, _ = query.size()
-        _, key_seq_len, _ = key.size()
-
-        # query: (batch, query_seq_len, dim)
-        # key: (batch, key_seq_len, dim)
-        # value: (batch, key_seq_len, dim)
-        # repeat query
-
-        query = query.view((-1, self.dim))\
-            .repeat((1, key_seq_len))\
-            .view((-1, self.dim))  # (batch * query_seq_len * key_seq_len, dim)
-
-        key = key.repeat((1, query_seq_len, 1))\
-            .view((-1, self.dim))  # (batch * key_seq_len * query_seq_len, dim)
-
-        dot_product = torch.sum(torch.mul(query, key), 1)\
-            .view((-1, key_seq_len))  # (batch * query_seq_len, key_seq_len)
-
-        # do masking
-
-        dist = f.softmax(dot_product, 1).view(-1, 1).repeat(1, self.dim)
-
-        value = value.repeat((1, query_seq_len, 1)) \
-            .view((-1, self.dim))  # (batch * key_seq_len * query_seq_len, dim)
-
-        weighted_avg1 = torch.mul(value, dist)\
-            .view((-1, key_seq_len, self.dim))
-
-        weighted_avg2 = torch.sum(weighted_avg1, 1)\
-            .view((-1, query_seq_len, self.dim))
-
-        return weighted_avg2
+from models.attention import SelfAttention
 
 
 # FFN(x)=max(0,xW1+b1)W2+b2
@@ -80,28 +29,6 @@ class ResidualConnection(nn.Module):
         return source + self.dropout(self.layer_norm(target))
 
 
-class EmbeddingLayer(nn.Module):
-
-    def __init__(self, dim, max_len=400, vocabulary_size=50000, dropout=0.1):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        self.dim = dim
-        pe = torch.zeros(max_len, dim)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.mul(torch.arange(0, dim, 2), -(math.log(10000.0) / dim)))
-        pe[:, 0::2] = torch.sin(torch.mul(position, div_term))
-        pe[:, 1::2] = torch.cos(torch.mul(position, div_term))
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-
-        self.lut = nn.Embedding(vocabulary_size, dim)
-
-    def forward(self, tensor):
-        emb = self.lut(tensor) * math.sqrt(self.dim)
-        result = emb + Variable(self.pe[:, :emb.size(1)], requires_grad=False)
-        return self.dropout(result)
-
-
 class Generator(nn.Module):
     def __init__(self, d_model, vocab):
         super(Generator, self).__init__()
@@ -113,7 +40,7 @@ class Generator(nn.Module):
         return result.view(1, -1), top_indices
 
 
-class EncoderLayer(nn.Module):
+class TransformerEncoderLayer(nn.Module):
 
     def __init__(self, dim, attention_heads, dim_ff, dropout=0.1):
         super().__init__()
@@ -140,7 +67,7 @@ class EncoderLayer(nn.Module):
         return self.residual_connection[1](residual_self_attn, feed_forward_result)
 
 
-class DecoderLayer(nn.Module):
+class TransformerDecoderLayer(nn.Module):
 
     def __init__(self, dim, attention_heads, dim_ff, dropout=0.1):
         super().__init__()
@@ -182,7 +109,7 @@ class TransformerEncoder(nn.Module):
         self.N = layers
         self.encoder = nn.ModuleList()
         for i in range(layers):
-            self.encoder.append(EncoderLayer(dim, attention_heads, dim_ff, dropout))
+            self.encoder.append(TransformerEncoderLayer(dim, attention_heads, dim_ff, dropout))
 
     def forward(self, input_tensor: torch.Tensor):
         for i in range(self.N):
@@ -196,7 +123,7 @@ class TransformerDecoder(nn.Module):
         self.N = layers
         self.decoder = nn.ModuleList()
         for i in range(layers):
-            self.decoder.append(DecoderLayer(dim, attention_heads, dim_ff, dropout))
+            self.decoder.append(TransformerDecoderLayer(dim, attention_heads, dim_ff, dropout))
 
     def forward(self, encoder_output: torch.Tensor, decoder_input: torch.Tensor):
         for i in range(self.N):
