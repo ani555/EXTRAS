@@ -72,10 +72,10 @@ class DecoderLayer(nn.Module):
         
     def forward(self, x, enc_outputs, src_mask=None, tgt_mask=None):
         
-        self_context, _ = self.dec_attn_layer(x, x, x, src_mask) # context from self attention on the decoder layers
+        self_context, _ = self.dec_attn_layer(x, x, x, tgt_mask) # context from self attention on the decoder layers
         x = x + self.dropout(self.layer_norm1(self_context))
 
-        cross_context, _ = self.enc_dec_attn_layer(querys=x, keys=enc_outputs, values=enc_outputs, mask=tgt_mask) # context from attn on encoder states and decoder prev states
+        cross_context, _ = self.enc_dec_attn_layer(querys=x, keys=enc_outputs, values=enc_outputs, mask=src_mask) # context from attn on encoder states and decoder prev states
         x = x + self.dropout(self.layer_norm2(cross_context))
         
         ffn_output = self.ffn(x)
@@ -166,7 +166,7 @@ class Transformer(nn.Module):
 		self.generator = generator
 
 	def forward(self, src, tgt, src_mask, tgt_mask):
-		return self.decode(self.encode(self.src_embed(src)), self.tgt_embed(tgt), src_mask, tgt_mask)
+		return self.decode(self.encode(src, src_mask), tgt, src_mask, tgt_mask)
 
 
 	def encode(self, src, src_mask):

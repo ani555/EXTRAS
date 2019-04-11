@@ -14,12 +14,15 @@ class ScaledDotProductAttention(nn.Module):
     
     def forward(self, querys, keys, values, mask=None):
         
-        # querys, keys, values - [BxTxnheadsxP]
+        # querys, keys, values - [BxnheadsxTxP]
         dk = keys.size(-1)
         attn_scores = torch.matmul(querys, torch.transpose(keys, 2, 3))/math.sqrt(dk)
 
+        # print(mask.shape)
+        # print(attn_scores.shape)
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
+            mask = mask.unsqueeze(1).unsqueeze(2)
+            attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
         
         attn_outputs = F.softmax(attn_scores, dim=-1)
         attn_outputs = self.dropout(attn_outputs)
