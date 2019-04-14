@@ -101,13 +101,13 @@ def article2ids(article_words, vocab):
   unk_id = vocab.word2id(UNKNOWN_TOKEN)
   for w in article_words:
     i = vocab.word2id(w)
-    # if i == unk_id: # If w is OOV
-    #   if w not in oovs: # Add to list of OOVs
-    #     oovs.append(w)
-    #   oov_num = oovs.index(w) # This is 0 for the first article OOV, 1 for the second article OOV...
-    #   ids.append(vocab.size() + oov_num) # This is e.g. 50000 for the first article OOV, 50001 for the second...
-    # else:
-    ids.append(i)
+    if i == unk_id: # If w is OOV
+      if w not in oovs: # Add to list of OOVs
+        oovs.append(w)
+      oov_num = oovs.index(w) # This is 0 for the first article OOV, 1 for the second article OOV...
+      ids.append(vocab.size() + oov_num) # This is e.g. 50000 for the first article OOV, 50001 for the second...
+    else:
+      ids.append(i)
   return ids, oovs
 
 
@@ -116,14 +116,14 @@ def abstract2ids(abstract_words, vocab, article_oovs):
   unk_id = vocab.word2id(UNKNOWN_TOKEN)
   for w in abstract_words:
     i = vocab.word2id(w)
-    # if i == unk_id: # If w is an OOV word
-    #   if w in article_oovs: # If w is an in-article OOV
-    #     vocab_idx = vocab.size() + article_oovs.index(w) # Map to its temporary article OOV number
-    #     ids.append(vocab_idx)
-    #   else: # If w is an out-of-article OOV
-        # ids.append(unk_id) # Map to the UNK token id
-    # else:
-    ids.append(i)
+    if i == unk_id: # If w is an OOV word
+      if w in article_oovs: # If w is an in-article OOV
+        vocab_idx = vocab.size() + article_oovs.index(w) # Map to its temporary article OOV number
+        ids.append(vocab_idx)
+      else: # If w is an out-of-article OOV
+        ids.append(unk_id) # Map to the UNK token id
+    else:
+      ids.append(i)
   return ids
 
 

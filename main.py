@@ -7,9 +7,10 @@ from helper import prepare_src_batch, prepare_tgt_batch
 import json
 import argparse
 from model import *
+from beam_search import BeamSearchDecoder
 
 parser = argparse.ArgumentParser(description='Transformer')
-parser.add_argument('--mode', dest='mode', default='train', help='train or test', required=True)
+parser.add_argument('--mode', dest='mode', default='train', help='train or eval', required=True)
 parser.add_argument('--vocab_path', dest='vocab_path', default='data/finished_files/vocab', help='location of the source file')
 parser.add_argument('--train_data_path', dest='train_data_path', default='data/finished_files/chunked/*', help='location of the source file')
 parser.add_argument('--config_file', dest='config_file', default='config.json', help='config file name with path')
@@ -30,11 +31,13 @@ class LabelSmoothing(nn.Module):
         self.true_dist = None
         
     def forward(self, x, target):
-        assert x.size(1) == self.size
+        # assert x.size(1) == self.size
         true_dist = x.data.clone()
         true_dist.fill_(self.smoothing / (self.size - 2))
         true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
         true_dist[:, self.padding_idx] = 0
+        # print("predicted", x.shape)
+        # print("target_data:",target.shape)
         mask = torch.nonzero(target.data == self.padding_idx)
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
@@ -80,8 +83,9 @@ class SimpleLossCompute:
         self.criterion = criterion
         self.opt = opt
         
-    def __call__(self, x, y, norm):
-        x = self.generator(x)
+    def __call__(self, x, y, norm, enc_op, enc_padding_mask, enc_batch_extend_vocab, extra_zeros):
+
+        x = self.generator(x, enc_op, enc_padding_mask, enc_batch_extend_vocab, extra_zeros)
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)), 
                               y.contiguous().view(-1)) / norm
         loss.backward()
@@ -90,6 +94,17 @@ class SimpleLossCompute:
             self.opt.optimizer.zero_grad()
         return loss.item()
 
+def eval(config):
+
+    model = build_model(config)
+    model.load_state_dict(torch.load('ckpt/model1.pt'))
+    dec = BeamSearchDecoder(model)
+    dec.decode(config)   
+
+
+
+
+
 
 def build_model(config):
 
@@ -97,7 +112,7 @@ def build_model(config):
 	encoder = Encoder(config['d_model'], config['d_ff'], config['nheads'], config['num_layers'], config['drop_prob'])
 	decoder = Decoder(config['d_model'], config['d_ff'], config['nheads'], config['num_layers'], config['drop_prob'])
 	embedding = InputEmbedding(config['d_model'], config['vocab_size'], config['max_enc_len'], config['drop_prob'])
-	generator = Generator(config['d_model'], config['vocab_size'])
+	generator = PointerGenerator(config['d_model'], config['vocab_size'], config['nheads'])
 	model = Transformer(encoder, decoder, embedding, embedding, generator)
 	model.cuda()
 
@@ -107,44 +122,50 @@ def build_model(config):
 def train_step(batch, model, config, loss_compute):
 
 	model.train()
-	enc_batch, enc_padding_mask, enc_lens = prepare_src_batch(batch, config)
+	enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros = prepare_src_batch(batch, config)
 	dec_batch, dec_padding_mask, max_dec_len, dec_lens_var, target_batch =  prepare_tgt_batch(batch)
 	# print(enc_batch.dtype)
 	# print(dec_batch.dtype)
-	out = model.forward(enc_batch, dec_batch, enc_padding_mask, dec_padding_mask)
+	out, enc_op = model.forward(enc_batch, dec_batch, enc_padding_mask, dec_padding_mask)
 	norm = int(torch.sum(dec_lens_var))
-	loss = loss_compute(out, target_batch, norm)
+	loss = loss_compute(out, target_batch, norm, enc_op, enc_padding_mask, enc_batch_extend_vocab, extra_zeros)  # sending actual lengths instead of norm
 	return loss
 
 
 
 
 def train(max_iters, batcher, model, criterion, config):
-	total_loss = 0.0
-	opt = get_std_opt(model, config)
-	loss_compute = SimpleLossCompute(model.generator, criterion, opt)
-	batch_i=0
-	while batch_i < max_iters:
+    total_loss = 0.0
+    opt = get_std_opt(model, config)
+    loss_compute = SimpleLossCompute(model.generator, criterion, opt)
+    batch_i=0
+    while batch_i < max_iters:
 
-		batch = batcher.next_batch()
-		loss = train_step(batch, model, config, loss_compute)
-		total_loss += loss
-		if batch_i % 100 == 0:
-			total_loss/=100
-			print("Batch : {:>3} Avg Train Loss {:.5f}".format(batch_i, total_loss))
-			total_loss = 0.0
+        batch = batcher.next_batch()
+        loss = train_step(batch, model, config, loss_compute)
+        total_loss += loss
+        if batch_i % 100 == 0:
+            total_loss/=100
+            print("Batch : {:>3} Avg Train Loss {:.5f}".format(batch_i, total_loss))
+            total_loss = 0.0
+        batch_i+=1
+        if batch_i % 10000 == 0:
+            torch.save(model.state_dict(),"ckpt/model"+str(batch_i)+".pt")
 
-		batch_i+=1
 
 def main():
 
-	with open('config.json', 'r') as f:
-		config = json.load(f)
-	vocab = Vocab(args.vocab_path, config['vocab_size'])
-	batcher = Batcher(args.train_data_path, vocab, mode='train', batch_size=config['batch_size'], single_pass=False)
-	model = build_model(config)
-	criterion = LabelSmoothing(config['vocab_size'], batcher.pad_id, smoothing=.1)
-	train(config['max_iters'], batcher, model, criterion, config)
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+    vocab = Vocab(args.vocab_path, config['vocab_size'])
+    batcher = Batcher(args.train_data_path, vocab, mode='train', batch_size=config['batch_size'], single_pass=False)
+    model = build_model(config)
+    criterion = LabelSmoothing(config['vocab_size'], batcher.pad_id, smoothing=.1)
+    
+    if args.mode=='train':
+        train(config['max_iters'], batcher, model, criterion, config)
+    elif args.mode=='eval':
+        eval(config)
 
 if __name__ == '__main__':
 	main()

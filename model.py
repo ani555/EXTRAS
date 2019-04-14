@@ -75,7 +75,7 @@ class DecoderLayer(nn.Module):
         self_context, _ = self.dec_attn_layer(x, x, x, tgt_mask) # context from self attention on the decoder layers
         x = x + self.dropout(self.layer_norm1(self_context))
 
-        cross_context, _ = self.enc_dec_attn_layer(querys=x, keys=enc_outputs, values=enc_outputs, mask=src_mask) # context from attn on encoder states and decoder prev states
+        cross_context, cross_attn_op = self.enc_dec_attn_layer(querys=x, keys=enc_outputs, values=enc_outputs, mask=src_mask) # context from attn on encoder states and decoder prev states
         x = x + self.dropout(self.layer_norm2(cross_context))
         
         ffn_output = self.ffn(x)
@@ -150,9 +150,44 @@ class Generator(nn.Module):
 		super(Generator, self).__init__()
 		self.fc = nn.Linear(d_model, vocab_size)
 
-	def forward(self, x):
+	def forward(self, x, enc_outputs=None, src_mask=None, enc_batch_extend_vocab=None, extra_zeros=None):
 		return F.log_softmax(self.fc(x), dim=-1)
 
+
+class PointerGenerator(nn.Module):
+
+    def __init__(self, d_model, vocab_size, nheads):
+        super(PointerGenerator, self).__init__()
+        self.fc = nn.Linear(d_model, vocab_size)
+        self.p_gen_fc = nn.Linear(d_model, 1)
+        self.single_head_attn = MultiHeadedAttention(d_model, 1)
+        #self.extra_zeros = extra_zeros
+    
+    def forward(self, x, enc_outputs, src_mask, enc_batch_extend_vocab, extra_zeros):
+        p_vocab = F.softmax(self.fc(x), dim=-1)
+        #cross_attn_op = cross_attn_op.permute(0,2,3,1).contiguous()
+        #print(cross_attn_op.shape)
+        cross_context, cross_attn_op = self.single_head_attn(querys=x, keys=enc_outputs, values=enc_outputs, mask=src_mask)
+        attn_probs = cross_attn_op.squeeze(1)
+        p_gen = torch.sigmoid(self.p_gen_fc(x)) #[BXTy]
+        #print(p_gen.shape)
+        # if enc_batch_extend_vocab is not None:
+        #     print("enc_batch_extend_vocab: ",enc_batch_extend_vocab.shape)
+        attn_dist = (1-p_gen)*attn_probs
+        p_vocab = p_gen*p_vocab
+
+        if extra_zeros is not None:
+            p_vocab_extended = torch.cat((p_vocab, extra_zeros), dim=-1)
+        else:
+            p_vocab_extended = p_vocab
+
+
+        indices = enc_batch_extend_vocab.expand(attn_dist.size(1),-1,-1).transpose(0,1)
+        p_vocab_extended.scatter_add_(-1, indices, attn_dist)
+        
+        #print(enc_batch_extend_vocab.shape)
+        # print("p_vocab_extended: ",p_vocab_extended.shape)
+        return torch.log(torch.clamp(p_vocab_extended, min = 1e-9))
 
 class Transformer(nn.Module):
 
@@ -173,4 +208,4 @@ class Transformer(nn.Module):
 		return self.encoder(self.src_embed(src), src_mask)
 
 	def decode(self, enc_output, tgt, src_mask, tgt_mask):
-		return self.decoder(self.tgt_embed(tgt), enc_output, src_mask, tgt_mask)
+		return self.decoder(self.tgt_embed(tgt), enc_output, src_mask, tgt_mask), enc_output

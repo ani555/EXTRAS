@@ -21,7 +21,7 @@ class ScaledDotProductAttention(nn.Module):
         # print(mask.shape)
         # print(attn_scores.shape)
         if mask is not None:
-            mask = mask.unsqueeze(1).unsqueeze(2)
+            mask = mask.unsqueeze(1)
             attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
         
         attn_outputs = F.softmax(attn_scores, dim=-1)
@@ -34,7 +34,7 @@ class ScaledDotProductAttention(nn.Module):
         
 class MultiHeadedAttention(nn.Module):
     
-    def __init__(self, d_model, nheads, drop_prob):
+    def __init__(self, d_model, nheads, drop_prob=0.2):
         
         super(MultiHeadedAttention, self).__init__()
         self.d_model = d_model
