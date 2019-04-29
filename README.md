@@ -3,8 +3,8 @@ Exploring Transformer Models for Abstractive Text Summarization
 
 ## About
 This repository contains the implementation of transformer based models for abstractive text summarization. Here we have tried to integrate the pointer generator mechanism [1] with the transformer models for abstractive text summarization. The code is divided into two folders 
-1. transformer- this folder contains the code for training and evaluating the transformer model with/without pointer generator
-2. bert - this folder contains the code for BERT based model, in which we replace our original encoder with the pretrained BERT encoder. This model can also be trained and evaluated with/without pointer generator.
+1. `transformer`- this folder contains the code for training and evaluating the transformer model with/without pointer generator
+2. `bert` - this folder contains the code for BERT based model, in which we replace our original encoder with the pretrained BERT encoder. This model can also be trained and evaluated with/without pointer generator.
 
 ## Setup Instructions
 
@@ -24,7 +24,7 @@ All the hyperparameters are loaded from `utils/config.py` file. Please set your 
 
 ### How to run
 
-Run instructions are same for both models present in folders transformer and bert.
+Run instructions are same for both models present in folders `transformer` and `bert`.
 
 To train your model run:
 ```
