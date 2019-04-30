@@ -18,6 +18,7 @@ pip3 install -r requirements.txt
 
 ### Dataset
 
+Steps to obtain and process the CNN/DM dataset can be found [here](https://github.com/abisee/cnn-dailymail). Update `utils/config.py` with right dataset paths.
 
 ### Setting the hyperparameters
 All the hyperparameters are loaded from `utils/config.py` file. Please set your hyperparameters in the same file.
