@@ -13,7 +13,7 @@ jmespath==0.9.4
 Keras-Applications==1.0.7
 Keras-Preprocessing==1.0.9
 Markdown==3.1
-numpy==1.16.2
+numpy==1.22.0
 Pillow==6.0.0
 pkg-resources==0.0.0
 protobuf==3.7.1
